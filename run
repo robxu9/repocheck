@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+docker build -t robxu9/omv-repocheck .
+docker run --rm -v "$(pwd)":/data robxu9/omv-repocheck

@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# repocheck with smart
+
+# source configuration file
+. /data/repocheck.conf
+
+repocheck() {
+    local media="$1"
+    local type="$2"
+    mkdir -p /data/results &>/dev/null
+
+    smart update
+    smart stats 2>&1 | tail -n +3 | sort | tee /data/results/$media-$type-stats.log
+    smart check --available 2>&1 | tail -n +3 | sort | tee /data/results/$media-$type-check.log
+}
+
+uniquecheck() {
+    local media="$1"
+    local type="$2"
+    local against="$3"
+
+    comm -23 /data/results/$media-$type-check.log /data/results/$media-$against-check.log | tee /data/results/$media-$type-check-uniq.log
+}
+
+main() {
+    # remove existing sources
+    urpmi.removemedia -a
+
+    # run for each...
+    for media in $PRODUCTS; do
+        # get base url
+        local mediaUrl="$(echo $URL | sed -e s/@PRODUCT@/$media/)"
+
+        # add main media
+        local mediaMain="$(echo $mediaUrl | sed -e s/@REPO@/main/)"
+        local mediaMainRelease="$(echo $mediaMain | sed -e s/@SECTION@/release/)"
+        local mediaMainUpdates="$(echo $mediaMain | sed -e s/@SECTION@/updates/)"
+        urpmi.addmedia main "$mediaMainRelease"
+        urpmi.addmedia main_updates "$mediaMainUpdates"
+
+        # do repocheck
+        repocheck "$media" "main"
+
+        # for each, add, then remove
+        for addl in $ADDLSECTIONS; do
+            # get addl media url
+            local addlUrl="$(echo $mediaUrl | sed -e s/@REPO@/$addl/)"
+            local addlUrlRelease="$(echo $addlUrl | sed -e s/@SECTION@/release/)"
+            local addlUrlUpdates="$(echo $addlUrl | sed -e s/@SECTION@/updates/)"
+            urpmi.addmedia "${addl}" "$addlUrlRelease"
+            urpmi.addmedia "${addl}_updates" "$addlUrlUpdates"
+
+            # do repocheck
+            repocheck "$media" "main+${addl}"
+
+            # cleanup the logfile
+            uniquecheck "$media" "main+${addl}" "main"
+
+            # remove the media
+            urpmi.removemedia "${addl}"
+            urpmi.removemedia "${addl}_updates"
+        done
+
+        # remove our main
+        urpmi.removemedia main
+        urpmi.removemedia main_updates
+    done
+}
+
+main "$@"
